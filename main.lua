@@ -1,7 +1,7 @@
 function love.load()
     -- Nastavení okna
     love.window.setMode(800, 600)
-    love.window.setTitle("Jednoduchá platformovka")
+    love.window.setTitle("Jednoduchá platformovka s dvojitým skokem")
 
     -- Hráč
     hrac = {
@@ -11,21 +11,22 @@ function love.load()
         h = 20,
         rychlost = 200,
         rychlostY = 0,
-        naZemi = false
+        naZemi = false,
+        maxSkoku = 2,       -- kolikrát může skočit (dvojitý skok = 2)
+        zbyvajiciSkoky = 2  -- kolik skoků mu ještě zbývá aktuálně
     }
 
     -- Gravitační konstanta
     gravitace = 800
 
-    -- Platformy (můžete jich přidat libovolný počet)
+    -- Platformy (můžete jich přidat, kolik chcete)
     platformy = {
         { x = 0,   y = 580, w = 800, h = 20 },  -- podlaha
         { x = 200, y = 450, w = 100, h = 20 },
         { x = 400, y = 350, w = 100, h = 20 }
     }
 
-    -- Nepřátelé (pro jednoduchost jeden)
-    -- Nepřítel se bude pohybovat doleva a doprava mezi dvěma body
+    -- Nepřátelé
     nepratele = {
         {
             x = 300,
@@ -63,33 +64,48 @@ function love.update(dt)
             hrac.x = hrac.x + hrac.rychlost * dt
         end
 
-        -- Skok
-        if love.keyboard.isDown("space") and hrac.naZemi then
-            hrac.rychlostY = -300  -- síla skoku
-            hrac.naZemi = false
+        -- Skok (dvojitý skok)
+        if love.keyboard.isDown("space") then
+            -- Kontrola, zda je to čerstvě stisknutá klávesa (zabránění "drženého" stisku)
+            -- v LÖVE byste mohli použít love.keypressed, ale pro jednoduchost to můžeme řešit
+            -- krátkým trvalým stiskem. Níže je jednoduchá ukázka "cooldownu" pro skok.
+            if not hrac.spaceDrzeno then
+                hrac.spaceDrzeno = true  -- zamezí opakovanému vyvolání uvnitř jediného stisku
+                if hrac.zbyvajiciSkoky > 0 then
+                    hrac.rychlostY = -300  -- síla skoku
+                    hrac.zbyvajiciSkoky = hrac.zbyvajiciSkoky - 1
+                end
+            end
+        else
+            hrac.spaceDrzeno = false
         end
 
         -- Gravitační pád
         hrac.rychlostY = hrac.rychlostY + gravitace * dt
         hrac.y = hrac.y + hrac.rychlostY * dt
 
-        -- Kontrola kolize s platformami
+        -- Nejprve předpokládejme, že hráč ve vzduchu
         hrac.naZemi = false
+
+        -- Kontrola kolize s platformami
         for _, p in ipairs(platformy) do
             if kolize(hrac, p) then
-                -- Opravit polohu, aby "seděl" na platformě
+                -- Opravit polohu, aby "seděl" na platformě (jen pokud padá shora)
                 if hrac.rychlostY > 0 then
                     hrac.y = p.y - hrac.h
                     hrac.naZemi = true
                     hrac.rychlostY = 0
+                    -- Když se dotkne země/platformy, obnoví počet skoků
+                    hrac.zbyvajiciSkoky = hrac.maxSkoku
                 end
             end
         end
 
-        -- Pohyb nepřítele
-        for _, n in ipairs(nepratele) do
+        -- Pohyb nepřítele a kontrola kolize s hráčem
+        for i = #nepratele, 1, -1 do
+            local n = nepratele[i]
+            -- Pohyb nepřítele
             n.x = n.x + n.smer * n.rychlost * dt
-            -- Pokud dojde k hranici, otočí směr
             if n.x < n.levaHranice then
                 n.x = n.levaHranice
                 n.smer = 1
@@ -98,12 +114,23 @@ function love.update(dt)
                 n.smer = -1
             end
 
-            -- Kontrola kolize hráče a nepřítele
+            -- Kolize hráč vs. nepřítel
             if kolize(hrac, n) then
-                -- Reset pozice hráče při kolizi
-                hrac.x = 50
-                hrac.y = 0
-                hrac.rychlostY = 0
+                -- Rozlišíme, zda hráč udeřil nepřítele shora:
+                -- - Podmínkou je, že hráč padá (rychlostY > 0)
+                -- - Spodní hrana hráče je v oblasti horní hrany nepřítele (přidáme malou rezervu)
+                if hrac.rychlostY > 0 and (hrac.y + hrac.h) <= (n.y + 10) then
+                    -- Zničíme nepřítele
+                    table.remove(nepratele, i)
+                    -- Hráč se "odrazí" (bonus skok nahoru)
+                    hrac.rychlostY = -200
+                else
+                    -- Pokud hráč narazil do nepřítele z boku nebo zespodu, reset pozice
+                    hrac.x = 50
+                    hrac.y = 0
+                    hrac.rychlostY = 0
+                    hrac.zbyvajiciSkoky = hrac.maxSkoku
+                end
             end
         end
 
