@@ -1,8 +1,8 @@
 function love.load()
     love.window.setMode(800, 600)
-    love.window.setTitle("Mega Boss, kostky nahoře, smoking power-up, více nepřátelských kostek")
+    love.window.setTitle("Platformovka s dosažitelnými platformami, slizem na stropě a mizejícím mráčkem")
 
-    -- Rozměry obrazovky a herního světa
+    -- Rozměry obrazovky a světa
     screenWidth = 800
     screenHeight = 600
     worldWidth = 10000
@@ -11,28 +11,28 @@ function love.load()
     -- Kamera
     camera = { x = 0, y = 0 }
 
-    -- Různé stavy hry
+    -- Stav hry
     gravitace = 800
     hraVyhrana = false
     gameOver = false
-    godMode = false        -- cheat "iddqd"
-    cheatFlyMode = false   -- cheat "prettyfly"
-    typedSequence = ""     -- buffer pro klávesy
+    godMode = false         -- cheat "iddqd"
+    cheatFlyMode = false    -- cheat "prettyfly"
+    typedSequence = ""      -- buffer pro klávesy
 
-    -----------------------------------------------------------------
-    -- Hrdina
-    -----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- Definice hrdiny
+    ----------------------------------------------------------------
     hrac = {
         x = 50,
-        y = 560,   -- Dole na hlavní platformě
+        y = 560,
         w = 20,
         h = 20,
 
         baseSpeed = 200,
-        rychlost = 200,      -- aktuální rychlost (vodorovná)
-        rychlostY = 0,       -- svislá rychlost
+        rychlost = 200,     -- aktuální rychlost (vodorovná)
+        rychlostY = 0,      -- svislá rychlost
         naZemi = false,
-        maxSkoku = 2,
+        maxSkoku = 2,       -- dvojitý skok
         zbyvajiciSkoky = 2,
 
         -- Dvě barvy + životy
@@ -46,34 +46,35 @@ function love.load()
             pink = {1, 0.7, 0.8},
         },
 
+        -- Speciální stavy
+        hasCilindr = false,
+        hasSmoking = false,
+        isBig = false,
+        -- Dříve "canFly", teď bude řešeno mráčkem:
+        flyCloud = nil,      -- pokud existuje, hrdina létá
         spaceDrzeno = false,
         switchCooldown = 0,
 
-        -- Speciální stavy
-        hasCilindr = false,   -- doplněk z předchozích power-upů
-        hasSmoking = false,   -- nový doplněk
-        isBig = false,        -- velký hrdina power-up
-        canFly = false,       -- dočasné létání
-        flyTimer = 0,
+        -- Pomocná pro sliz/šplhání
+        isOnSlime = false,
 
-        -- Funkce pro získání aktuální barvy (RGB)
         getColor = function(self)
             return self.colors[self.activeColor]
         end
     }
 
-    -- Metoda: Hrdina dostane zásah (ztrácí život nebo se zmenší)
+    -- Metoda: hrdina dostane zásah
     function hrac:takeDamage()
-        if godMode then return end  -- v god módu nedostává dmg
+        if godMode then return end  -- v god módu žádné zranění
 
-        -- Pokud je hrdina velký, jen se zmenší a neztrácí život
+        -- Pokud je hrdina velký, jen se zmenší
         if self.isBig then
             self.isBig = false
             self.rychlost = self.baseSpeed
             return
         end
 
-        -- Jinak ztrácí život v rámci aktivní barvy
+        -- Jinak ztratí 1 život aktuální barvy
         self.health[self.activeColor] = self.health[self.activeColor] - 1
         if self.health[self.activeColor] <= 0 then
             -- Přepnout na druhou barvu, pokud má životy
@@ -93,7 +94,7 @@ function love.load()
         end
     end
 
-    -- Metoda: přepnout barvu (klávesa P)
+    -- Metoda: přepnutí barvy (P)
     function hrac:switchColor()
         if self.activeColor == "red" and self.health["pink"] > 0 then
             self.activeColor = "pink"
@@ -105,45 +106,39 @@ function love.load()
     -- Střely (mráčky), pokud je hrdina velký
     mracky = {}
 
-    -----------------------------------------------------------------
-    -- Platformy
-    -----------------------------------------------------------------
-    -- Velká hlavní platforma dole (na y=580)
-    -- + pár vygenerovaných nahoře (pokud chcete)
-    platformy = {
-        { x=0,    y=580, w=10000, h=20, bounce=false, falling=false, color={0.7,0.3,0.3} }, -- hlavní
+    ----------------------------------------------------------------
+    -- Generované platformy (vždy dosažitelné)
+    ----------------------------------------------------------------
+    platformy = generateReachablePlatforms(worldWidth)
 
-        -- Můžeme vygenerovat nějaké menší platformy nahoře. Místo generátoru
-        -- je tu pro ukázku pár ručních. Třeba v rozmezí y=70..120
-        { x=600,  y=120, w=150,   h=20, bounce=false, falling=false, color={0.7,0.3,0.3} },
-        { x=1200, y=100, w=200,   h=20, bounce=false, falling=false, color={0.7,0.3,0.3} },
-        { x=2000, y=80,  w=150,   h=20, bounce=true,  falling=false, color={0,0,0} },      -- trampolína
-        { x=2500, y=90,  w=200,   h=20, bounce=false, falling=true,  color={1,0.8,0.5} },  -- padající
-        { x=3500, y=120, w=200,   h=20, bounce=false, falling=false, color={0.7,0.3,0.3} },
-        { x=9000, y=110, w=400,   h=20, bounce=false, falling=false, color={0.7,0.3,0.3} }, -- u bosse
-    }
+    -- Velká spodní platforma (zajistí, že dole je vždy "zem")
+    table.insert(platformy, {
+        x = 0,
+        y = 580,
+        w = worldWidth,
+        h = 20,
+        bounce = false,
+        falling = false,
+        color = {0.7, 0.3, 0.3}
+    })
 
-    -- Můžeme si pamatovat "poslední bezpečnou" platformu – pro pád
-    lastSafePlatform = platformy[1]  -- start: velká dole
+    -- Poslední bezpečná platforma (start: dole)
+    lastSafePlatform = platformy[#platformy]
 
-    -----------------------------------------------------------------
-    -- Mystery Bloky nahoře (5 ks)
-    -----------------------------------------------------------------
-    -- Dáme je kolem y=50
-    mysteryBlocks = {
-        { x=1000, y=50, w=20, h=20, opened=false, color={1,1,0} },
-        { x=2000, y=50, w=20, h=20, opened=false, color={1,1,0} },
-        { x=3000, y=50, w=20, h=20, opened=false, color={1,1,0} },
-        { x=6000, y=50, w=20, h=20, opened=false, color={1,1,0} },
-        { x=8000, y=50, w=20, h=20, opened=false, color={1,1,0} },
-    }
+    ----------------------------------------------------------------
+    -- Mystery bloky (vždy nad platformou v doskočitelné vzdálenosti)
+    ----------------------------------------------------------------
+    mysteryBlocks = generateMysteryBoxes(5, platformy)
 
-    -----------------------------------------------------------------
-    -- Nepřátelé (včetně "kostek" a "mega boss")
-    -----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- Zelený sliz na stropě (náhodné "lišty"), po kterých se dá šplhat
+    ----------------------------------------------------------------
+    slizSegments = generateSlimeSegments(10)
+    -- 10 segmentů, můžete měnit dle potřeby
 
-    -- 1) Běžní malí nepřátelé dole
-    --    (pohyb tam a zpět na hlavní platformě)
+    ----------------------------------------------------------------
+    -- Nepřátelé (včetně Mega bosse)
+    ----------------------------------------------------------------
     nepratele = {
         {
             x=300, y=560, w=20, h=20,
@@ -155,105 +150,188 @@ function love.load()
             rychlost=150, smer=-1,
             levaHranice=600, pravaHranice=800,
         },
+        -- Pár "kostkových" nepřátel nahoře
+        {
+            enemyBlock=true,
+            x=2000, y=300, w=30, h=30,
+            rychlost=60, smer=1,
+            levaHranice=1900, pravaHranice=2100
+        },
+        {
+            enemyBlock=true,
+            x=2500, y=250, w=30, h=30,
+            rychlost=70, smer=-1,
+            levaHranice=2400, pravaHranice=2700
+        },
+        -- Mega Boss (hnědý, střílí žluté banány)
+        {
+            bossMega=true,
+            hp=3,
+            x=9500, y=430,
+            w=150, h=150,
+            vy=0, naZemi=false,
+            jumpTimer=2, shootTimer=1,
+        }
     }
 
-    -- 2) "Nepřátelské kostky" nahoře (větší, fialové, pohyblivé)
-    --    Třeba 3 kusy
-    table.insert(nepratele, {
-        enemyBlock=true,
-        x=1500, y=70, w=30, h=30,
-        rychlost=80, smer=1,
-        levaHranice=1400, pravaHranice=1600
-    })
-    table.insert(nepratele, {
-        enemyBlock=true,
-        x=2500, y=60, w=30, h=30,
-        rychlost=70, smer=-1,
-        levaHranice=2400, pravaHranice=2800
-    })
-    table.insert(nepratele, {
-        enemyBlock=true,
-        x=4200, y=100, w=30, h=30,
-        rychlost=90, smer=1,
-        levaHranice=4000, pravaHranice=4500
-    })
-
-    -- 3) Mega Boss (hnědý), velký 150x150, střílí žluté banány
-    table.insert(nepratele, {
-        bossMega=true,   -- příznak pro vykreslování i logiku
-        hp=3,
-        x=9500, y=430,   -- dole, ale o kousek výš, aby byl vidět
-        w=150,  h=150,
-        vy=0, naZemi=false,
-        jumpTimer=2, shootTimer=1,
-    })
-
-    -- Banány (bossovy střely) - žluté
-    banany = {}
+    banany = {} -- bossovy střely (žluté)
 
 end
 
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- FUNKCE: Generování dosažitelných platform
+--------------------------------------------------------------------------------
+function generateReachablePlatforms(maxWidth)
+    -- Předpoklady:
+    --  - hrdina skáče max. ~ (100 px) do výšky
+    --  - horizontální "doskok" ~ 300 px (podle baseSpeed a skokové dráhy)
+    -- Tady si definujeme menší "kroky".
+    local plats = {}
+    local x = 200   -- začneme kousek odkraje
+    local y = 400   -- a někde v polovině
+    local lastX, lastY = x, y
+
+    local stepCount = 0
+    while x < maxWidth - 500 do
+        local p = {}
+        p.x = x
+        p.w = 150
+        p.h = 20
+        p.bounce = false
+        p.falling = false
+        p.color = {0.7, 0.3, 0.3}
+
+        -- Náhodný posun, ale omezený tak, aby se dalo doskočit
+        -- horizontálně do ~ 300 px, vertikálně do ~ 100 px
+        local dx = love.math.random(100, 250)
+        local dy = love.math.random(-80, 80)
+
+        x = x + dx
+        y = y + dy
+
+        -- Omezit y tak, aby zůstalo v "rozumném" rozmezí
+        -- (např. 100..500)
+        if y < 100 then y = 100 end
+        if y > 500 then y = 500 end
+
+        p.y = y
+        table.insert(plats, p)
+
+        lastX, lastY = p.x, p.y
+        stepCount = stepCount + 1
+    end
+
+    return plats
+end
+
+--------------------------------------------------------------------------------
+-- FUNKCE: Generování Mystery boxů (počet, platformy)
+-- Vždy umístíme box ~50..80 px nad vybranou platformu (aby šel bouchnout zespodu)
+--------------------------------------------------------------------------------
+function generateMysteryBoxes(count, plats)
+    local boxes = {}
+    for i=1,count do
+        -- vybereme náhodnou platformu
+        local p = plats[love.math.random(#plats)]
+        -- box bude v horizontálním rozmezí platformy
+        local boxX = love.math.random(p.x, p.x + p.w - 20)
+        -- boxY ~ kousek nad platformou (max doskok ~ 80 px)
+        local boxY = p.y - love.math.random(50,80)
+        if boxY < 0 then boxY=0 end
+
+        table.insert(boxes, {
+            x=boxX, y=boxY,
+            w=20, h=20,
+            opened=false,
+            color={1,1,0}
+        })
+    end
+    return boxes
+end
+
+--------------------------------------------------------------------------------
+-- FUNKCE: Generování zeleného slizu na stropě
+-- Uděláme N segmentů, každý bude svislý "pruh" slizu, který sahá
+-- od stropu (y=0) dolů k určitému y. Hrdina po něm může lézt nahoru/dolů.
+--------------------------------------------------------------------------------
+function generateSlimeSegments(count)
+    local slimes = {}
+    for i=1,count do
+        local x = love.math.random(100, worldWidth-200)
+        local length = love.math.random(50, 200)  -- jak "hluboko" sliz sahá
+        local topY = 0
+        local bottomY = length
+
+        table.insert(slimes, {
+            x = x,
+            topY = topY,
+            bottomY = bottomY,
+            w = 20,     -- šířka pruhu
+            color = {0, 1, 0}, -- zelená
+        })
+    end
+    return slimes
+end
+
+--------------------------------------------------------------------------------
 -- Kolize obdélníků
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
 local function kolize(a, b)
     return  a.x < b.x + b.w and
             a.x + a.w > b.x and
-            a.y < b.y + b.h and
+            a.y < b.y + (b.h or 0) and
             a.y + a.h > b.y
 end
 
----------------------------------------------------------------------
--- Boss střílí banán (žlutý)
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Boss střílí žlutý banán
+--------------------------------------------------------------------------------
 local function bossShootBanana(boss)
-    -- Rychlost + směr k hráči
-    local speed = 250
+    local speed=250
     local dx = (hrac.x + hrac.w/2) - (boss.x + boss.w/2)
     local dy = (hrac.y + hrac.h/2) - (boss.y + boss.h/2)
     local length = math.sqrt(dx*dx + dy*dy)
-    if length == 0 then
-        dx, dy = 1,0
+    if length==0 then
+        dx,dy=1,0
     else
-        dx = dx / length
-        dy = dy / length
+        dx=dx/length
+        dy=dy/length
     end
-
-    local banana = {
-        x = boss.x + boss.w/2,
-        y = boss.y + boss.h/2,
+    local banana={
+        x = boss.x+boss.w/2,
+        y = boss.y+boss.h/2,
         w = 10, h = 10,
-        vx = dx*speed,
-        vy = dy*speed
+        vx=dx*speed,
+        vy=dy*speed
     }
     table.insert(banany, banana)
 end
 
----------------------------------------------------------------------
--- KeyPressed -> sledujeme cheaty
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- KeyPressed => sledujeme cheaty
+--------------------------------------------------------------------------------
 function love.keypressed(key)
     typedSequence = typedSequence .. key
-    if #typedSequence > 15 then
-        typedSequence = string.sub(typedSequence, -15)
+    if #typedSequence>15 then
+        typedSequence=string.sub(typedSequence,-15)
     end
 
-    -- IDDQD => god mode
-    if string.sub(typedSequence, -5) == "iddqd" then
-        godMode = true
-        print("God mode aktivován (iddqd).")
+    -- iddqd => god mode
+    if string.sub(typedSequence, -5)=="iddqd" then
+        godMode=true
+        print("God mode ON (iddqd)")
     end
 
-    -- PRETTYFLY => fly mode
-    if string.sub(typedSequence, -9) == "prettyfly" then
+    -- prettyfly => toggle cheat fly mode
+    if string.sub(typedSequence, -9)=="prettyfly" then
         cheatFlyMode = not cheatFlyMode
-        print("Fly mode toggled:", cheatFlyMode)
+        print("Fly mode toggled =>", cheatFlyMode)
     end
 end
 
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- LOVE.UPDATE
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
 function love.update(dt)
     if hraVyhrana or gameOver then
         if love.keyboard.isDown("r") then
@@ -262,9 +340,24 @@ function love.update(dt)
         return
     end
 
-    -- Ovládání hrdiny (podle fly módu)
-    if cheatFlyMode or hrac.canFly then
-        -- Může létat nahoru/dolů
+    -- 1) Pohyb hrdiny
+    local isFlying = false
+    -- a) Cheat fly mode
+    if cheatFlyMode then
+        isFlying=true
+    end
+    -- b) Mráček (letací power-up)
+    if hrac.flyCloud then
+        isFlying=true
+        -- Odpočet života mráčku
+        hrac.flyCloud.timeLeft = hrac.flyCloud.timeLeft - dt
+        if hrac.flyCloud.timeLeft <= 0 then
+            hrac.flyCloud = nil
+        end
+    end
+
+    if isFlying then
+        -- Let = pohyb up/down/left/right
         if love.keyboard.isDown("up") then
             hrac.y = hrac.y - hrac.rychlost*dt
         end
@@ -277,49 +370,39 @@ function love.update(dt)
         if love.keyboard.isDown("right") then
             hrac.x = hrac.x + hrac.rychlost*dt
         end
-
-        -- Pokud je to dočasné létání z Mystery blocku
-        if hrac.canFly then
-            hrac.flyTimer = hrac.flyTimer - dt
-            if hrac.flyTimer <= 0 then
-                hrac.canFly = false
-            end
-        end
     else
-        -- Normální pohyb
+        -- Normální pohyb (vlevo/vpravo + gravitace)
         if love.keyboard.isDown("left") then
             hrac.x = hrac.x - hrac.rychlost*dt
         elseif love.keyboard.isDown("right") then
             hrac.x = hrac.x + hrac.rychlost*dt
         end
-
-        -- Gravitační pád
         hrac.rychlostY = hrac.rychlostY + gravitace*dt
         hrac.y = hrac.y + hrac.rychlostY*dt
     end
 
-    -- Omezit pohyb hrdiny do hranic
-    if hrac.x < 0 then hrac.x=0 end
-    if hrac.x+hrac.w > worldWidth then
-        hrac.x = worldWidth - hrac.w
+    -- Omezit do hranic světa
+    if hrac.x<0 then hrac.x=0 end
+    if hrac.x+hrac.w>worldWidth then
+        hrac.x=worldWidth-hrac.w
     end
 
-    -- Dvojitý skok (pokud nelétáme)
-    if not cheatFlyMode and not hrac.canFly then
+    -- 2) Dvojitý skok (pokud zrovna nepoužíváme let)
+    if not isFlying then
         if love.keyboard.isDown("space") then
             if not hrac.spaceDrzeno then
-                hrac.spaceDrzeno = true
+                hrac.spaceDrzeno=true
                 if hrac.zbyvajiciSkoky>0 then
-                    hrac.rychlostY = -300
-                    hrac.zbyvajiciSkoky = hrac.zbyvajiciSkoky - 1
+                    hrac.rychlostY=-300
+                    hrac.zbyvajiciSkoky=hrac.zbyvajiciSkoky-1
                 end
             end
         else
-            hrac.spaceDrzeno = false
+            hrac.spaceDrzeno=false
         end
     end
 
-    -- Přepnutí barvy (P)
+    -- 3) Přepnutí barvy (P)
     if love.keyboard.isDown("p") then
         if hrac.switchCooldown<=0 then
             hrac.switchCooldown=0.3
@@ -330,20 +413,46 @@ function love.update(dt)
         hrac.switchCooldown = hrac.switchCooldown - dt
     end
 
-    -- Střelba mráčků, pokud je hrdina velký
+    -- 4) Střelba mráčků, pokud je hrdina velký
     if hrac.isBig and love.keyboard.isDown("m") then
         shootMracek()
     end
     updateMracky(dt)
 
-    -- Kolize s platformami (pokud nepoužíváme létání)
-    if not cheatFlyMode and not hrac.canFly then
-        hrac.naZemi = false
+    -- 5) Šplhání po slizu (pokud hrdina koliduje s jedním ze slizSegmentů)
+    hrac.isOnSlime = false
+    for _,sl in ipairs(slizSegments) do
+        local slimeRect = {
+            x = sl.x,
+            y = sl.topY,
+            w = sl.w,
+            h = sl.bottomY - sl.topY
+        }
+        if kolize(hrac, slimeRect) then
+            hrac.isOnSlime = true
+            break
+        end
+    end
+
+    if hrac.isOnSlime and not isFlying then
+        -- Můžeme lézt nahoru/dolů
+        -- Zastavíme gravitaci
+        hrac.rychlostY = 0
+        if love.keyboard.isDown("up") then
+            hrac.y = hrac.y - 100*dt
+        elseif love.keyboard.isDown("down") then
+            hrac.y = hrac.y + 100*dt
+        end
+    end
+
+    -- 6) Kolize s platformami (pokud se neletí a není na slizu)
+    if not isFlying and not hrac.isOnSlime then
+        hrac.naZemi=false
         for i=#platformy,1,-1 do
-            local p = platformy[i]
+            local p=platformy[i]
             if kolize(hrac,p) then
                 if hrac.rychlostY>0 then
-                    hrac.y = p.y - hrac.h
+                    hrac.y=p.y-hrac.h
                     hrac.rychlostY=0
                     hrac.naZemi=true
                     hrac.zbyvajiciSkoky=hrac.maxSkoku
@@ -360,82 +469,76 @@ function love.update(dt)
         end
     end
 
-    -- Mystery bloky: bouchnutí ze spodu?
+    -- 7) Mystery boxy - bouchnutí zespodu
     checkMysteryBlocks(dt)
 
-    -- Pád pod úroveň poslední bezpečné platformy
+    -- 8) Pád pod úroveň "lastSafePlatform"
     if lastSafePlatform then
-        if (not cheatFlyMode and not hrac.canFly) then
+        if not isFlying and not hrac.isOnSlime then
             local padThreshold = lastSafePlatform.y + 200
-            if hrac.y + hrac.h > padThreshold then
+            if hrac.y+hrac.h>padThreshold then
                 hrac:takeDamage()
                 if not gameOver then
-                    hrac.x = lastSafePlatform.x+10
-                    hrac.y = lastSafePlatform.y - hrac.h
+                    hrac.x=lastSafePlatform.x+10
+                    hrac.y=lastSafePlatform.y-hrac.h
                     hrac.rychlostY=0
                 end
             end
         end
     end
 
-    -- Nepřátelé
+    -- 9) Pohyb nepřátel (včetně mega bosse)
     for i=#nepratele,1,-1 do
-        local n = nepratele[i]
+        local n=nepratele[i]
         if not n.bossMega then
-            -- Běžný nepřítel (včetně "enemyBlock")
-            n.x = n.x + n.smer*n.rychlost*dt
-            -- Restrikce pohybu
+            -- obyčejní nepřátelé
+            n.x=n.x+n.smer*n.rychlost*dt
             if n.levaHranice and n.pravaHranice then
-                if n.x < n.levaHranice then
-                    n.x = n.levaHranice
+                if n.x<n.levaHranice then
+                    n.x=n.levaHranice
                     n.smer=1
-                elseif n.x + n.w>n.pravaHranice then
-                    n.x = n.pravaHranice - n.w
+                elseif n.x+n.w>n.pravaHranice then
+                    n.x=n.pravaHranice-n.w
                     n.smer=-1
                 end
             end
         else
-            -- Mega boss (hnědý)
-            n.vy = n.vy + gravitace*dt
-            n.y = n.y + n.vy*dt
-            n.naZemi = false
-
-            -- Dopad na platformu?
+            -- mega boss
+            n.vy=n.vy+gravitace*dt
+            n.y=n.y+n.vy*dt
+            n.naZemi=false
             for _,p in ipairs(platformy) do
                 if (n.x+n.w>p.x) and (n.x<p.x+p.w)
                    and (n.y+n.h<=p.y+5)
                    and (n.vy>0) then
                     if n.y+n.h>p.y then
-                        n.y = p.y - n.h
+                        n.y=p.y-n.h
                         n.vy=0
                         n.naZemi=true
                         break
                     end
                 end
             end
-
-            -- Skákání
-            n.jumpTimer = n.jumpTimer - dt
+            -- boss skok
+            n.jumpTimer=n.jumpTimer-dt
             if n.jumpTimer<=0 and n.naZemi then
                 n.vy=-300
-                n.jumpTimer=2 + love.math.random()*2
+                n.jumpTimer=2+love.math.random()*2
             end
-
-            -- Střílení
-            n.shootTimer = n.shootTimer - dt
+            -- boss střelba
+            n.shootTimer=n.shootTimer-dt
             if n.shootTimer<=0 then
                 bossShootBanana(n)
-                n.shootTimer=1.5 + love.math.random()*2
+                n.shootTimer=1.5+love.math.random()*2
             end
         end
 
-        -- Kolize hrdiny s nepřítelem
+        -- Kolize hrdiny vs nepřítel
         if kolize(hrac,n) then
-            -- Shora?
-            if (not cheatFlyMode and not hrac.canFly)
+            if not isFlying and not hrac.isOnSlime
                and hrac.rychlostY>0
-               and (hrac.y+hrac.h) <= (n.y + 10) then
-                -- Boss?
+               and (hrac.y+hrac.h)<=(n.y+10) then
+                -- skok na hlavu
                 if n.bossMega then
                     n.hp=n.hp-1
                     if n.hp<=0 then
@@ -446,29 +549,27 @@ function love.update(dt)
                 end
                 hrac.rychlostY=-200
             else
-                -- Z boku nebo zespodu => damage
+                -- hrdina z boku/spodu => dmg
                 hrac:takeDamage()
                 if not gameOver and lastSafePlatform then
-                    hrac.x = lastSafePlatform.x+10
-                    hrac.y = lastSafePlatform.y-hrac.h
+                    hrac.x=lastSafePlatform.x+10
+                    hrac.y=lastSafePlatform.y-hrac.h
                     hrac.rychlostY=0
                 end
             end
         end
     end
 
-    -- Banány (žluté)
+    -- 10) Banány (bossovy střely)
     for i=#banany,1,-1 do
-        local b = banany[i]
-        b.x = b.x + b.vx*dt
-        b.y = b.y + b.vy*dt
-
-        -- Kolize s hrdinou
-        if kolize(b, hrac) then
+        local b=banany[i]
+        b.x=b.x+b.vx*dt
+        b.y=b.y+b.vy*dt
+        if kolize(b,hrac) then
             hrac:takeDamage()
             if not gameOver and lastSafePlatform then
-                hrac.x = lastSafePlatform.x+10
-                hrac.y = lastSafePlatform.y-hrac.h
+                hrac.x=lastSafePlatform.x+10
+                hrac.y=lastSafePlatform.y-hrac.h
                 hrac.rychlostY=0
             end
             table.remove(banany,i)
@@ -477,40 +578,39 @@ function love.update(dt)
         end
     end
 
-    -- Vyhrál jsi, pokud není žádný nepřítel
+    -- Konec hry (výhra) - všichni nepřátelé pryč
     if #nepratele==0 then
         hraVyhrana=true
     end
 
     -- Kamera
-    camera.x = hrac.x - screenWidth/2
+    camera.x=hrac.x-screenWidth/2
     if camera.x<0 then camera.x=0 end
-    if camera.x>worldWidth - screenWidth then
-        camera.x=worldWidth - screenWidth
+    if camera.x>worldWidth-screenWidth then
+        camera.x=worldWidth-screenWidth
     end
 end
 
----------------------------------------------------------------------
--- Střelba mráčků
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- FUNKCE: Střelba mráčků (hrac.isBig)
+--------------------------------------------------------------------------------
 function shootMracek()
-    local speed = 300
-    local mrak = {
+    local speed=300
+    local m={
         x=hrac.x+hrac.w/2,
         y=hrac.y+hrac.h/2,
-        w=10,h=10,
-        vx=speed, vy=0
+        w=10, h=10,
+        vx=speed,
+        vy=0
     }
-    table.insert(mracky,mrak)
+    table.insert(mracky,m)
 end
 
 function updateMracky(dt)
     for i=#mracky,1,-1 do
         local m=mracky[i]
-        m.x = m.x + m.vx*dt
-        m.y = m.y + m.vy*dt
-
-        -- Kolize s nepřáteli
+        m.x=m.x+m.vx*dt
+        m.y=m.y+m.vy*dt
         local removeIt=false
         for j=#nepratele,1,-1 do
             local n=nepratele[j]
@@ -527,22 +627,22 @@ function updateMracky(dt)
                 break
             end
         end
-
         if removeIt or m.x<0 or m.x>worldWidth or m.y<0 or m.y>worldHeight then
             table.remove(mracky,i)
         end
     end
 end
 
----------------------------------------------------------------------
--- Mystery bloky (bouchnutí zespodu => power-up)
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Mystery boxy -> bouchnutí zespodu => power-up
+-- (včetně nového "letacího" mráčku s mizícím časem)
+--------------------------------------------------------------------------------
 function checkMysteryBlocks(dt)
     for i=#mysteryBlocks,1,-1 do
-        local mb = mysteryBlocks[i]
+        local mb=mysteryBlocks[i]
         if not mb.opened then
-            if kolize(hrac, mb) then
-                -- Úder zespodu => hrdina.rychlostY<0 a (hrac.y>mb.y)
+            if kolize(hrac,mb) then
+                -- úder zespodu => hrdina.rychlostY<0 a hrac.y>mb.y
                 if hrac.rychlostY<0 and hrac.y>mb.y then
                     openMysteryBlock(mb)
                 end
@@ -553,28 +653,37 @@ end
 
 function openMysteryBlock(block)
     block.opened=true
-    -- Nyní máme 4 power-upy: (1) křídla, (2) big mode, (3) cylindr, (4) smoking
-    local r = love.math.random(1,4)
+    local r = love.math.random(1,5)
+    -- Teď budeme mít 5 variant (1..5):
+    -- 1) křídla => dříve canFly, nyní "modrý mráček" 10s
+    -- 2) big mode => dvojnásobná rychlost + střelba
+    -- 3) cylindr
+    -- 4) smoking
+    -- 5) nic (nebo byste mohli přidat cokoliv jiného)
     if r==1 then
-        hrac.canFly=true
-        hrac.flyTimer=10
-        print("Power-up: Křídla na 10s!")
+        -- Letací "mráček" = hrac.flyCloud
+        hrac.flyCloud = {
+            timeLeft = 10  -- 10 vteřin
+        }
+        print("Power-up: Modrý mráček (let na 10s)!")
     elseif r==2 then
         hrac.isBig=true
         hrac.rychlost=hrac.baseSpeed*2
-        print("Power-up: BIG mode (dvojnásobná rychlost + střelba mráčků)!")
+        print("Power-up: BIG mode!")
     elseif r==3 then
         hrac.hasCilindr=true
-        print("Power-up: Cilindr s červenou stužkou!")
-    else
+        print("Power-up: Cilindr!")
+    elseif r==4 then
         hrac.hasSmoking=true
-        print("Power-up: Smoking (frak)!")
+        print("Power-up: Smoking!")
+    else
+        print("Power-up: Nic zajímavého. :-)")
     end
 end
 
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- LOVE.DRAW
----------------------------------------------------------------------
+--------------------------------------------------------------------------------
 function love.draw()
     love.graphics.push()
     love.graphics.translate(-camera.x, -camera.y)
@@ -588,7 +697,7 @@ function love.draw()
         love.graphics.rectangle("fill", p.x, p.y, p.w, p.h)
     end
 
-    -- Mystery Bloky
+    -- Mystery boxy (žluté)
     for _,mb in ipairs(mysteryBlocks) do
         if not mb.opened then
             love.graphics.setColor(mb.color)
@@ -596,36 +705,40 @@ function love.draw()
         end
     end
 
-    -- Banány (mega boss) - žluté
+    -- Sliz na stropě
+    for _,sl in ipairs(slizSegments) do
+        love.graphics.setColor(sl.color)
+        love.graphics.rectangle("fill", sl.x, sl.topY, sl.w, sl.bottomY - sl.topY)
+    end
+
+    -- Banány (žluté)
     love.graphics.setColor(1,1,0)
     for _,b in ipairs(banany) do
         love.graphics.rectangle("fill", b.x, b.y, b.w, b.h)
     end
 
-    -- Nepřátelé (fialoví) + Mega boss (hnědý)
+    -- Nepřátelé (fialoví), Mega boss (hnědý)
     for _,n in ipairs(nepratele) do
         if n.bossMega then
-            -- Hnědý mega boss
-            love.graphics.setColor(0.6,0.3,0)
+            love.graphics.setColor(0.6,0.3,0)   -- hnědý
         else
-            -- Fialoví
-            love.graphics.setColor(0.7,0,0.7)
+            love.graphics.setColor(0.7,0,0.7)  -- fialový
         end
         love.graphics.rectangle("fill", n.x, n.y, n.w, n.h)
     end
 
-    -- Mráčky (střely hrdiny, světle šedé)
+    -- Mráčky hráče (světle šedé)
     love.graphics.setColor(0.9,0.9,0.9)
     for _,m in ipairs(mracky) do
         love.graphics.rectangle("fill", m.x, m.y, m.w, m.h)
     end
 
-    -- Hrdina - barva podle activeColor
+    -- Hrdina
     local r,g,b = hrac:getColor()[1], hrac:getColor()[2], hrac:getColor()[3]
     love.graphics.setColor(r,g,b)
     love.graphics.rectangle("fill", hrac.x, hrac.y, hrac.w, hrac.h)
 
-    -- Pokud má cylindr, nakreslíme klobouk
+    -- Doplňky: cylindr, smoking
     if hrac.hasCilindr then
         love.graphics.setColor(0,0,0)
         local hatW = hrac.w
@@ -637,42 +750,50 @@ function love.draw()
         love.graphics.setColor(1,0,0)
         love.graphics.rectangle("fill", hatX, hatY+hatH/2-1, hatW, 2)
     end
-
-    -- Pokud má smoking, nakreslíme obdélník (frak) pod postavou
     if hrac.hasSmoking then
         love.graphics.setColor(0,0,0)
-        local coatW = hrac.w
-        local coatH = 10
-        -- trošku přesahuje dole
-        local coatX = hrac.x
-        local coatY = hrac.y + hrac.h
+        local coatW=hrac.w
+        local coatH=10
+        local coatX=hrac.x
+        local coatY=hrac.y+hrac.h
         love.graphics.rectangle("fill", coatX, coatY, coatW, coatH)
+    end
+
+    -- Pokud je aktivní letací mráček, vykreslíme jej pod hrdinou modře
+    if hrac.flyCloud then
+        local alpha = hrac.flyCloud.timeLeft / 10  -- z 10s zbývá
+        love.graphics.setColor(0,0.6,1, alpha)     -- poloprůhledně
+        local cloudW = hrac.w + 10
+        local cloudH = 8
+        local cloudX = hrac.x - 5
+        local cloudY = hrac.y + hrac.h
+        love.graphics.rectangle("fill", cloudX, cloudY, cloudW, cloudH)
     end
 
     love.graphics.pop()
 
-    -- UI / texty
+    -- UI texty
     love.graphics.setColor(1,1,1)
-    local msg = string.format("RED HP: %d  |  PINK HP: %d",
+    local msg = string.format("RED HP: %d | PINK HP: %d",
         hrac.health.red, hrac.health.pink)
-    love.graphics.print(msg, 10, 10)
+    love.graphics.print(msg,10,10)
 
     if godMode then
         love.graphics.setColor(1,1,0)
-        love.graphics.print("God mode (iddqd)", 10, 30)
+        love.graphics.print("God mode (iddqd)",10,30)
     end
     if cheatFlyMode then
         love.graphics.setColor(1,1,0)
-        love.graphics.print("Fly mode (prettyfly)", 10, 50)
+        love.graphics.print("Fly mode (prettyfly)",10,50)
     end
 
     if hraVyhrana then
         love.graphics.setColor(1,1,1)
-        love.graphics.printf("Vyhrál jsi! (R pro restart)",
+        love.graphics.printf("Vyhrál jsi! [R] pro restart",
             0, screenHeight/2, screenWidth, "center")
     elseif gameOver then
         love.graphics.setColor(1,1,1)
-        love.graphics.printf("Prohrál jsi! (R pro restart)",
+        love.graphics.printf("Prohrál jsi! [R] pro restart",
             0, screenHeight/2, screenWidth, "center")
     end
 end
