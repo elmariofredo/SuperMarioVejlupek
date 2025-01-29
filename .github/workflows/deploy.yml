@@ -19,7 +19,7 @@ jobs:
       - name: Prepare Web Distribution
         run: |
           # Create a directory to stage deployment
-          mkdir tmp/web-build
+          mkdir -p tmp/web-build
           # Copy love.js distribution
           cp -r lib/love.js/* tmp/web-build/
           # Move the compiled game.love file
