@@ -1,37 +1,50 @@
-name: Deploy LÖVE Game to GitHub Pages
+# .github/workflows/build.yml
+
+name: Build LÖVE Game
 
 on:
   push:
     branches:
-      - main  # change if your main branch has a different name
-
-permissions:
-  contents: write
+      - main
+  release:
+    types: [created]
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      # Checkout the repository
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Zip game into .love
-        run: |
-          zip -9 -r game.love ./src/
+      # Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16' # Specify the Node.js version you need
 
-      - name: Prepare Web Distribution
-        run: |
-          # Create a directory to stage deployment
-          mkdir -p tmp/web-build
-          # Copy love.js distribution
-          cp -r lib/love.js/* tmp/web-build/
-          # Move the compiled game.love file
-          mv game.love tmp/web-build/game.love
+      # Install dependencies
+      - name: Install Dependencies
+        run: npm install
 
+      # Run the packaging script
+      - name: Package LÖVE Game
+        run: node package-love-game.js
+
+      # Upload build artifacts
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: love-game-build
+          path: |
+            dist/*.html
+            dist/*.love
+
+      # Optional: Deploy to GitHub Pages (if desired)
       - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: tmp/web-build
-          # You can set the branch name or let the action default to 'gh-pages'
-          # publish_branch: gh-pages
+          publish_dir: ./dist
