@@ -1,0 +1,30 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My LÖVE Game</title>
+  <style>
+    /* Add your styles here */
+    body { background-color: #e0f4fc; margin: 0; font-family: sans-serif; }
+    #gameCanvas { display: block; margin: 0 auto; background: #000; }
+  </style>
+</head>
+<body>
+  <h1 style="text-align:center;">My LÖVE Game</h1>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <script src="love.js"></script>
+  <script>
+    // Initialize the game using the embedded ZIP data
+    const zipData = atob('UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==');
+    const byteArray = new Uint8Array(zipData.length);
+    for (let i = 0; i < zipData.length; i++) {
+      byteArray[i] = zipData.charCodeAt(i);
+    }
+
+    // Here you can integrate the love.js initialization with the ZIP data
+    // This is a placeholder for your actual initialization code
+    console.log('Initializing LÖVE game with embedded ZIP data...');
+  </script>
+</body>
+</html>
