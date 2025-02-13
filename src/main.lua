@@ -1,15 +1,15 @@
 -- Konstanta a nastavení okna
 function love.load()
     -- Konstanty
-    WORLD_WIDTH   = 10000
-    WORLD_HEIGHT  = 1200    -- vyšší kvůli slizovému království nahoře
-    SCREEN_WIDTH  = 800
-    SCREEN_HEIGHT = 600
-    GRAVITY       = 800
-    JUMP_FORCE    = -300
-    BOUNCE_FORCE  = -500
-    HERO_BASE_SPEED = 200
-    HERO_MAX_JUMPS  = 2
+    WORLD_WIDTH    = 10000
+    WORLD_HEIGHT   = 1200    -- vyšší kvůli slizovému království nahoře
+    SCREEN_WIDTH   = 800
+    SCREEN_HEIGHT  = 600
+    GRAVITY        = 800
+    JUMP_FORCE     = -300
+    BOUNCE_FORCE   = -500
+    HERO_BASE_SPEED= 200
+    HERO_MAX_JUMPS = 2
 
     love.window.setMode(SCREEN_WIDTH, SCREEN_HEIGHT)
     love.window.setTitle("Platformovka: PF cheat, dynamický sliz, bambitka a super mystery box")
@@ -18,11 +18,11 @@ function love.load()
     camera = { x = 0, y = 0 }
 
     -- Herní stavy
-    hraVyhrana = false
-    gameOver   = false
-    godMode    = false
+    hraVyhrana   = false
+    gameOver     = false
+    godMode      = false
     cheatFlyMode = false
-    typedSequence = ""
+    typedSequence= ""
 
     -- Speciální efekt: obří hovínko na 3 s
     giantPoop = nil
@@ -122,33 +122,40 @@ function love.load()
         falling = false,
         color = {0.7, 0.3, 0.3}
     })
-    -- Další platformy
-    table.insert(platformy, {
-        x = 400, y = 450, w = 200, h = 20,
-        bounce = false, falling = false,
-        color = {0.7, 0.3, 0.3}
-    })
-    table.insert(platformy, {
-        x = 900, y = 350, w = 150, h = 20,
-        bounce = true, falling = false,
-        color = {0, 0, 0}
-    })
-    table.insert(platformy, {
-        x = 1400, y = 300, w = 200, h = 20,
-        bounce = false, falling = true,
-        color = {1, 0.8, 0.5}
-    })
-    table.insert(platformy, {
-        x = 3000, y = 50, w = 200, h = 20,
-        bounce = false, falling = false,
-        color = {0.7, 0.3, 0.3}
-    })
-    table.insert(platformy, {
-        x = 2800, y = -100, w = 300, h = 20,
-        bounce = false, falling = false,
-        color = {0.2, 0.6, 0.2}
-    })
     lastSafePlatform = platformy[1]
+
+    -- Procedurálně generované platformy
+    -- Parametry: aby vzdálenost mezi platformami byla přijatelná (hráč vždy doskočí)
+    local currentX = 50
+    local currentY = 580
+    local minXGap = 80
+    local maxXGap = 140
+    local minYDelta = -40
+    local maxYDelta = 40
+    local minWidth  = 100
+    local maxWidth  = 200
+    local bounceProbability  = 0.1
+    local fallingProbability = 0.1
+
+    while currentX < WORLD_WIDTH - 300 do
+        local gap = love.math.random(minXGap, maxXGap)
+        currentX = currentX + gap
+        local yDelta = love.math.random(minYDelta, maxYDelta)
+        currentY = currentY + yDelta
+        -- Zajistíme, že platforma bude umístěna v rozmezí dosažitelné výšky (od 400 do 580)
+        if currentY < 400 then currentY = 400 end
+        if currentY > 580 then currentY = 580 end
+        local platWidth = love.math.random(minWidth, maxWidth)
+        table.insert(platformy, {
+            x = currentX,
+            y = currentY,
+            w = platWidth,
+            h = 20,
+            bounce = (love.math.random() < bounceProbability),
+            falling = (love.math.random() < fallingProbability),
+            color = {0.7, 0.3, 0.3}
+        })
+    end
 
     ----------------------------------------------------------------------------
     -- Mystery boxy
@@ -346,7 +353,6 @@ local function updateHeroMovement(dt, isFlying)
         hrac.y = hrac.y + hrac.rychlostY * dt
     end
 
-    -- Omezení, aby hrdina nezmizel za okrajem světa
     if hrac.x < 0 then hrac.x = 0 end
     if hrac.x + hrac.w > WORLD_WIDTH then
         hrac.x = WORLD_WIDTH - hrac.w
@@ -549,7 +555,6 @@ local function updateEnemies(dt, isFlying)
             end
         end
 
-        -- Kolize hrdina vs nepřítel
         if kolize(hrac, n) then
             if not isFlying and not hrac.isOnSlime and hrac.rychlostY > 0 and (hrac.y + hrac.h) <= (n.y + 10) then
                 if n.bossMega then
